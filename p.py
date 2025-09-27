@@ -1,8 +1,8 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QTextEdit, QPushButton, 
-                             QCheckBox, QGridLayout, QComboBox)
-from PyQt5.QtCore import Qt
+                             QCheckBox, QGridLayout, QMessageBox)
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
 import requests
 import json
 import urllib.parse
@@ -10,6 +10,12 @@ import threading
 import logging
 from datetime import datetime
 import warnings
+import re
+
+class SignalEmitter(QObject):
+    update_response = pyqtSignal(str)
+    update_cookies = pyqtSignal(str)
+    update_history = pyqtSignal(list)
 
 class APITesterApp(QMainWindow):
     def __init__(self):
@@ -19,6 +25,9 @@ class APITesterApp(QMainWindow):
         self.session = requests.Session()
         self.request_in_progress = False
         self.request_history = []
+
+        # Signal emitter for thread-safe UI updates
+        self.emitter = SignalEmitter()
 
         # Setup logging
         logging.basicConfig(
@@ -133,9 +142,22 @@ class APITesterApp(QMainWindow):
 
         main_layout.addStretch()
 
+        # Connect signals after widgets are created
+        self.emitter.update_response.connect(self.response_text.setText)
+        self.emitter.update_cookies.connect(self.cookies_text.setText)
+        self.emitter.update_history.connect(self.update_history_combo)
+
     def start_request_thread(self):
         if self.request_in_progress:
             return
+        # Validate URL
+        url = self.url_entry.text()
+        if not re.match(r'^https?://', url):
+            QMessageBox.critical(self, "Invalid Input", "URL must start with http:// or https://")
+            return
+        # Warn about SSL verification
+        if not self.ssl_verify.isChecked():
+            QMessageBox.warning(self, "Security Warning", "Disabling SSL verification is insecure. Use only for testing.")
         self.request_in_progress = True
         self.send_button.setEnabled(False)
         self.status_label.setText("Sending request...")
@@ -172,8 +194,10 @@ class APITesterApp(QMainWindow):
             headers = json.loads(self.headers_text.toPlainText().strip())
             body = json.loads(self.body_text.toPlainText().strip()) if method == "POST" else None
         except json.JSONDecodeError as e:
-            self.response_text.setText(f"Error: Invalid JSON in headers or body: {e}")
+            self.emitter.update_response.emit(f"Error: Invalid JSON in headers or body: {e}")
             self.logger.error(f"JSON decode error: {e}")
+            self.emitter.update_response.emit("")
+            self.emitter.update_cookies.emit("")
             self.reset_ui()
             return
 
@@ -188,8 +212,7 @@ class APITesterApp(QMainWindow):
             "body": body
         }
         self.request_history.append(request_entry)
-        self.history_combo.clear()
-        self.history_combo.addItems([f"{r['method']} {r['url']}" for r in self.request_history])
+        self.emitter.update_history.emit([f"{r['method']} {r['url']}" for r in self.request_history])
 
         # Send request
         try:
@@ -201,13 +224,13 @@ class APITesterApp(QMainWindow):
             response.raise_for_status()
             response_time = (datetime.now() - start_time).total_seconds()
 
-            # Update UI
-            self.response_text.setText(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
+            # Update UI via signals
+            self.emitter.update_response.emit(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
             cookies = self.session.cookies.get_dict()
-            self.cookies_text.setText(json.dumps(cookies, indent=2))
+            self.emitter.update_cookies.emit(json.dumps(cookies, indent=2))
             self.logger.info(f"Request successful: {response.status_code}, {response.text[:100]}...")
         except requests.exceptions.RequestException as e:
-            self.response_text.setText(f"Request failed: {e}")
+            self.emitter.update_response.emit(f"Request failed: {e}")
             self.logger.error(f"Request failed: {e}")
         finally:
             self.reset_ui()
@@ -217,6 +240,10 @@ class APITesterApp(QMainWindow):
         self.send_button.setEnabled(True)
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet("color: green;")
+
+    def update_history_combo(self, items):
+        self.history_combo.clear()
+        self.history_combo.addItems(items)
 
     def load_history(self, index):
         if index >= 0:
