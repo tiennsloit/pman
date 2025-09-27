@@ -1,16 +1,16 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QLineEdit, QComboBox, QTextEdit, QPushButton, 
-                             QCheckBox, QGridLayout, QMessageBox)
-from PyQt5.QtCore import Qt, QObject, pyqtSignal
-import requests
+import os
 import json
-import urllib.parse
+import re
 import threading
 import logging
+import requests
 from datetime import datetime
 import warnings
-import re
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QLabel, QLineEdit, QComboBox, QTextEdit, QPushButton, 
+                             QCheckBox, QGridLayout, QMessageBox, QSplitter)
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
 
 class SignalEmitter(QObject):
     update_response = pyqtSignal(str)
@@ -40,80 +40,112 @@ class APITesterApp(QMainWindow):
         # Main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout()
         main_widget.setLayout(main_layout)
+
+        # Left-side menu
+        menu_widget = QWidget()
+        menu_layout = QVBoxLayout()
+        menu_widget.setLayout(menu_layout)
+        menu_widget.setFixedWidth(150)
+
+        # Request History Label and ComboBox
+        menu_layout.addWidget(QLabel("Request History", styleSheet="font-weight: bold;"))
+        self.history_combo = QComboBox()
+        self.history_combo.currentIndexChanged.connect(self.load_history)
+        menu_layout.addWidget(self.history_combo)
+
+        # New Request Button
+        self.new_button = QPushButton("+ New Request")
+        self.new_button.clicked.connect(self.new_request)
+        menu_layout.addWidget(self.new_button)
+
+        # Duplicate and Delete Buttons
+        self.duplicate_button = QPushButton("Duplicate Request")
+        self.duplicate_button.clicked.connect(self.duplicate_request)
+        menu_layout.addWidget(self.duplicate_button)
+
+        self.delete_button = QPushButton("Delete Request")
+        self.delete_button.clicked.connect(self.delete_request)
+        menu_layout.addWidget(self.delete_button)
+
+        menu_layout.addStretch()
+
+        # Right-side input/output area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout()
+        content_widget.setLayout(content_layout)
+
+        # Splitter for resizable layout
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(menu_widget)
+        splitter.addWidget(content_widget)
+        splitter.setSizes([150, 650])
+        main_layout.addWidget(splitter)
 
         # Grid layout for inputs
         grid_layout = QGridLayout()
-        main_layout.addLayout(grid_layout)
-
-        # Request History
-        self.history_combo = QComboBox()
-        self.history_combo.currentIndexChanged.connect(self.load_history)
-        grid_layout.addWidget(QLabel("Request History:"), 0, 0)
-        grid_layout.addWidget(self.history_combo, 0, 1)
+        content_layout.addLayout(grid_layout)
 
         # API Request Section
-        main_layout.addWidget(QLabel("API Request", styleSheet="font-weight: bold;"))
+        content_layout.addWidget(QLabel("API Request", styleSheet="font-weight: bold;"))
 
         # URL
-        grid_layout.addWidget(QLabel("URL:"), 1, 0)
-        self.url_entry = QLineEdit("https://defaulttenant.localhost.mar1.com:5001/api/account/health")
-        grid_layout.addWidget(self.url_entry, 1, 1)
+        grid_layout.addWidget(QLabel("URL:"), 0, 0)
+        self.url_entry = QLineEdit()  # Empty by default
+        grid_layout.addWidget(self.url_entry, 0, 1)
 
         # Method
-        grid_layout.addWidget(QLabel("Method:"), 2, 0)
+        grid_layout.addWidget(QLabel("Method:"), 1, 0)
         self.method_combo = QComboBox()
         self.method_combo.addItems(["GET", "POST"])
-        self.method_combo.setCurrentText("POST")
-        grid_layout.addWidget(self.method_combo, 2, 1, alignment=Qt.AlignLeft)
+        self.method_combo.setCurrentText("GET")  # Default to GET
+        grid_layout.addWidget(self.method_combo, 1, 1, alignment=Qt.AlignLeft)
 
         # Headers
-        grid_layout.addWidget(QLabel("Headers (JSON):"), 3, 0)
-        self.headers_text = QTextEdit()
-        self.headers_text.setText('{\n  "Content-Type": "application/json"\n}')
+        grid_layout.addWidget(QLabel("Headers (JSON):"), 2, 0)
+        self.headers_text = QTextEdit()  # Empty by default
         self.headers_text.setFixedHeight(80)
-        grid_layout.addWidget(self.headers_text, 3, 1)
+        grid_layout.addWidget(self.headers_text, 2, 1)
 
         # Body
-        grid_layout.addWidget(QLabel("Body (JSON):"), 4, 0)
-        self.body_text = QTextEdit()
-        self.body_text.setText('{\n  "username": "your_username",\n  "password": "your_password"\n}')
+        grid_layout.addWidget(QLabel("Body (JSON):"), 3, 0)
+        self.body_text = QTextEdit()  # Empty by default
         self.body_text.setFixedHeight(80)
-        grid_layout.addWidget(self.body_text, 4, 1)
+        grid_layout.addWidget(self.body_text, 3, 1)
 
         # Proxy Section
-        main_layout.addWidget(QLabel("Proxy Settings", styleSheet="font-weight: bold;"))
+        content_layout.addWidget(QLabel("Proxy Settings", styleSheet="font-weight: bold;"))
 
         # Proxy Enable Checkbox
         self.proxy_enabled = QCheckBox("Enable Proxy")
-        self.proxy_enabled.setChecked(True)
-        grid_layout.addWidget(self.proxy_enabled, 5, 0, 1, 2)
+        self.proxy_enabled.setChecked(False)  # Disabled by default
+        grid_layout.addWidget(self.proxy_enabled, 4, 0, 1, 2)
 
         # Proxy Host
-        grid_layout.addWidget(QLabel("Proxy Host:"), 6, 0)
-        self.proxy_host_entry = QLineEdit("your_proxy_host")
-        grid_layout.addWidget(self.proxy_host_entry, 6, 1)
+        grid_layout.addWidget(QLabel("Proxy Host:"), 5, 0)
+        self.proxy_host_entry = QLineEdit()
+        grid_layout.addWidget(self.proxy_host_entry, 5, 1)
 
         # Proxy Port
-        grid_layout.addWidget(QLabel("Proxy Port:"), 7, 0)
-        self.proxy_port_entry = QLineEdit("your_proxy_port")
-        grid_layout.addWidget(self.proxy_port_entry, 7, 1)
+        grid_layout.addWidget(QLabel("Proxy Port:"), 6, 0)
+        self.proxy_port_entry = QLineEdit()
+        grid_layout.addWidget(self.proxy_port_entry, 6, 1)
 
         # Proxy Credentials
-        grid_layout.addWidget(QLabel("Proxy Username (optional):"), 8, 0)
+        grid_layout.addWidget(QLabel("Proxy Username (optional):"), 7, 0)
         self.proxy_user_entry = QLineEdit()
-        grid_layout.addWidget(self.proxy_user_entry, 8, 1)
+        grid_layout.addWidget(self.proxy_user_entry, 7, 1)
 
-        grid_layout.addWidget(QLabel("Proxy Password (optional):"), 9, 0)
+        grid_layout.addWidget(QLabel("Proxy Password (optional):"), 8, 0)
         self.proxy_pass_entry = QLineEdit()
         self.proxy_pass_entry.setEchoMode(QLineEdit.Password)
-        grid_layout.addWidget(self.proxy_pass_entry, 9, 1)
+        grid_layout.addWidget(self.proxy_pass_entry, 8, 1)
 
         # SSL Verification Checkbox
         self.ssl_verify = QCheckBox("Verify SSL Certificates")
         self.ssl_verify.setChecked(True)
-        grid_layout.addWidget(self.ssl_verify, 10, 0, 1, 2)
+        grid_layout.addWidget(self.ssl_verify, 9, 0, 1, 2)
 
         # Send Button and Status
         button_layout = QHBoxLayout()
@@ -124,34 +156,114 @@ class APITesterApp(QMainWindow):
         self.status_label.setStyleSheet("color: green;")
         button_layout.addWidget(self.status_label)
         button_layout.addStretch()
-        main_layout.addLayout(button_layout)
+        content_layout.addLayout(button_layout)
 
         # Response Section
-        main_layout.addWidget(QLabel("Response", styleSheet="font-weight: bold;"))
+        content_layout.addWidget(QLabel("Response", styleSheet="font-weight: bold;"))
         self.response_text = QTextEdit()
         self.response_text.setReadOnly(True)
         self.response_text.setFixedHeight(100)
-        main_layout.addWidget(self.response_text)
+        content_layout.addWidget(self.response_text)
 
         # Cookies Section
-        main_layout.addWidget(QLabel("Stored Cookies", styleSheet="font-weight: bold;"))
+        content_layout.addWidget(QLabel("Stored Cookies", styleSheet="font-weight: bold;"))
         self.cookies_text = QTextEdit()
         self.cookies_text.setReadOnly(True)
         self.cookies_text.setFixedHeight(80)
-        main_layout.addWidget(self.cookies_text)
+        content_layout.addWidget(self.cookies_text)
 
-        main_layout.addStretch()
+        content_layout.addStretch()
 
         # Connect signals after widgets are created
         self.emitter.update_response.connect(self.response_text.setText)
         self.emitter.update_cookies.connect(self.cookies_text.setText)
         self.emitter.update_history.connect(self.update_history_combo)
 
+        # Load history from file
+        self.load_history_file()
+
+    def save_history(self):
+        try:
+            with open("history.json", "w") as f:
+                json.dump(self.request_history, f, indent=2)
+            self.logger.info("Saved request history to history.json")
+        except Exception as e:
+            self.logger.error(f"Failed to save history: {e}")
+
+    def load_history_file(self):
+        if os.path.exists("history.json"):
+            try:
+                with open("history.json") as f:
+                    self.request_history = json.load(f)
+                self.update_history_combo([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
+                self.logger.info("Loaded request history from history.json")
+            except Exception as e:
+                self.logger.error(f"Failed to load history: {e}")
+
+    def new_request(self):
+        # Create a new empty request
+        new_request = {
+            "name": "New Request",
+            "url": "",
+            "method": "GET",
+            "headers": {},
+            "body": None
+        }
+        self.request_history.append(new_request)
+        self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
+        self.history_combo.setCurrentIndex(len(self.request_history) - 1)
+        self.url_entry.clear()
+        self.method_combo.setCurrentText("GET")
+        self.headers_text.clear()
+        self.body_text.clear()
+        self.save_history()
+        self.logger.info("Created new request")
+
+    def duplicate_request(self):
+        index = self.history_combo.currentIndex()
+        if index >= 0:
+            request = self.request_history[index]
+            # Create a copy of the request
+            new_request = {
+                "name": f"Copy of {request.get('name', request['method'] + ' ' + request['url'])}",
+                "url": request["url"],
+                "method": request["method"],
+                "headers": request["headers"].copy(),
+                "body": request["body"].copy() if request["body"] else None
+            }
+            self.request_history.append(new_request)
+            self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
+            self.history_combo.setCurrentIndex(len(self.request_history) - 1)
+            self.save_history()
+            self.logger.info(f"Duplicated request: {new_request['name']}")
+
+    def delete_request(self):
+        index = self.history_combo.currentIndex()
+        if index >= 0:
+            # Confirm deletion
+            reply = QMessageBox.question(self, "Delete Request", 
+                                       f"Are you sure you want to delete {self.history_combo.currentText()}?",
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                deleted_request = self.request_history.pop(index)
+                self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
+                self.save_history()
+                self.logger.info(f"Deleted request: {deleted_request.get('name', deleted_request['method'] + ' ' + deleted_request['url'])}")
+                # Clear input fields if no requests remain
+                if not self.request_history:
+                    self.url_entry.clear()
+                    self.method_combo.setCurrentText("GET")
+                    self.headers_text.clear()
+                    self.body_text.clear()
+
     def start_request_thread(self):
         if self.request_in_progress:
             return
         # Validate URL
         url = self.url_entry.text()
+        if not url:
+            QMessageBox.critical(self, "Invalid Input", "URL cannot be empty")
+            return
         if not re.match(r'^https?://', url):
             QMessageBox.critical(self, "Invalid Input", "URL must start with http:// or https://")
             return
@@ -175,6 +287,12 @@ class APITesterApp(QMainWindow):
             proxy_pass = self.proxy_pass_entry.text()
 
             if proxy_host and proxy_port:
+                try:
+                    int(proxy_port)  # Validate port
+                except ValueError:
+                    self.emitter.update_response.emit("Error: Proxy port must be a number")
+                    self.reset_ui()
+                    return
                 proxy_url = f"http://{proxy_host}:{proxy_port}"
                 if proxy_user and proxy_pass:
                     proxy_url = f"http://{urllib.parse.quote(proxy_user)}:{urllib.parse.quote(proxy_pass)}@{proxy_host}:{proxy_port}"
@@ -188,8 +306,10 @@ class APITesterApp(QMainWindow):
         url = self.url_entry.text()
         method = self.method_combo.currentText()
         try:
-            headers = json.loads(self.headers_text.toPlainText().strip())
-            body = json.loads(self.body_text.toPlainText().strip()) if method == "POST" else None
+            headers_text = self.headers_text.toPlainText().strip()
+            headers = json.loads(headers_text) if headers_text else {}
+            body_text = self.body_text.toPlainText().strip()
+            body = json.loads(body_text) if body_text and method == "POST" else None
         except json.JSONDecodeError as e:
             self.emitter.update_response.emit(f"Error: Invalid JSON in headers or body: {e}")
             self.logger.error(f"JSON decode error: {e}")
@@ -201,15 +321,30 @@ class APITesterApp(QMainWindow):
         # Log request
         self.logger.info(f"Sending {method} request to {url} with headers {headers} and body {body}")
 
-        # Save to history
-        request_entry = {
-            "url": url,
-            "method": method,
-            "headers": headers,
-            "body": body
-        }
-        self.request_history.append(request_entry)
-        self.emitter.update_history.emit([f"{r['method']} {r['url']}" for r in self.request_history])
+        # Update or add to history
+        current_index = self.history_combo.currentIndex()
+        if current_index >= 0:
+            # Update existing request
+            self.request_history[current_index] = {
+                "name": f"{method} {url}",
+                "url": url,
+                "method": method,
+                "headers": headers,
+                "body": body
+            }
+        else:
+            # Add new request
+            request_entry = {
+                "name": f"{method} {url}",
+                "url": url,
+                "method": method,
+                "headers": headers,
+                "body": body
+            }
+            self.request_history.append(request_entry)
+
+        self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
+        self.save_history()
 
         # Send request
         try:
@@ -225,7 +360,7 @@ class APITesterApp(QMainWindow):
             self.emitter.update_response.emit(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
             cookies = self.session.cookies.get_dict()
             self.emitter.update_cookies.emit(json.dumps(cookies, indent=2))
-            self.logger.info(f"Request successful: {response.status_code}, {response.text[:100]}...")
+            self.logger.info(f"Request successful: {response.status_code}, Response: {response.text[:100]}...")
         except requests.exceptions.RequestException as e:
             self.emitter.update_response.emit(f"Request failed: {e}")
             self.logger.error(f"Request failed: {e}")
@@ -239,15 +374,18 @@ class APITesterApp(QMainWindow):
         self.status_label.setStyleSheet("color: green;")
 
     def update_history_combo(self, items):
+        current_index = self.history_combo.currentIndex()
         self.history_combo.clear()
         self.history_combo.addItems(items)
+        if current_index >= 0 and current_index < len(items):
+            self.history_combo.setCurrentIndex(current_index)
 
     def load_history(self, index):
         if index >= 0:
             request = self.request_history[index]
             self.url_entry.setText(request["url"])
             self.method_combo.setCurrentText(request["method"])
-            self.headers_text.setText(json.dumps(request["headers"], indent=2))
+            self.headers_text.setText(json.dumps(request["headers"], indent=2) if request["headers"] else "")
             self.body_text.setText(json.dumps(request["body"], indent=2) if request["body"] else "")
 
 if __name__ == "__main__":
