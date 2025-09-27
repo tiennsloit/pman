@@ -155,9 +155,6 @@ class APITesterApp(QMainWindow):
         if not re.match(r'^https?://', url):
             QMessageBox.critical(self, "Invalid Input", "URL must start with http:// or https://")
             return
-        # Warn about SSL verification
-        if not self.ssl_verify.isChecked():
-            QMessageBox.warning(self, "Security Warning", "Disabling SSL verification is insecure. Use only for testing.")
         self.request_in_progress = True
         self.send_button.setEnabled(False)
         self.status_label.setText("Sending request...")
