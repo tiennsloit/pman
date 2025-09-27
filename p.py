@@ -25,6 +25,7 @@ class APITesterApp(QMainWindow):
         self.session = requests.Session()  # Single session for persistent cookies
         self.request_in_progress = False
         self.request_history = []
+        self.test_cookie_url = "https://defaulttenant.localhost.mar1.com:5001/api/account/user"  # Default test endpoint
 
         # Signal emitter for thread-safe UI updates
         self.emitter = SignalEmitter()
@@ -78,6 +79,16 @@ class APITesterApp(QMainWindow):
         self.save_cookies_button = QPushButton("Save Cookies")
         self.save_cookies_button.clicked.connect(self.save_cookies)
         menu_layout.addWidget(self.save_cookies_button)
+
+        # Test Cookie Button
+        self.test_cookie_button = QPushButton("Test Cookie")
+        self.test_cookie_button.clicked.connect(self.test_cookie)
+        menu_layout.addWidget(self.test_cookie_button)
+
+        # Set Cookies Button
+        self.set_cookies_button = QPushButton("Set Cookies")
+        self.set_cookies_button.clicked.connect(self.set_cookies)
+        menu_layout.addWidget(self.set_cookies_button)
 
         menu_layout.addStretch()
 
@@ -171,14 +182,14 @@ class APITesterApp(QMainWindow):
         # Response Section
         content_layout.addWidget(QLabel("Response", styleSheet="font-weight: bold;"))
         self.response_text = QTextEdit()
-        self.response_text.setReadOnly(True)
+        self.response_text.setReadOnly(False)  # Allow editing for manual cookie input
         self.response_text.setFixedHeight(100)
         content_layout.addWidget(self.response_text)
 
         # Cookies Section
-        content_layout.addWidget(QLabel("Stored Cookies", styleSheet="font-weight: bold;"))
+        content_layout.addWidget(QLabel("Stored Cookies (Editable JSON):", styleSheet="font-weight: bold;"))
         self.cookies_text = QTextEdit()
-        self.cookies_text.setReadOnly(True)
+        self.cookies_text.setReadOnly(False)  # Allow editing for manual cookie input
         self.cookies_text.setFixedHeight(80)
         content_layout.addWidget(self.cookies_text)
 
@@ -281,9 +292,76 @@ class APITesterApp(QMainWindow):
         self.logger.info("Cleared session cookies")
 
     def save_cookies(self):
-        # Placeholder for manual cookie saving (already handled by session)
+        # Update cookie display
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
         self.logger.info("Manually saved cookies (display updated)")
+
+    def set_cookies(self):
+        # Parse JSON from cookies text area and set cookies in session
+        try:
+            cookies_text = self.cookies_text.toPlainText().strip()
+            if not cookies_text:
+                QMessageBox.warning(self, "No Cookies", "No cookies provided to set")
+                self.logger.warning("No cookies provided in Stored Cookies text area")
+                return
+            cookies_dict = json.loads(cookies_text)
+            if not isinstance(cookies_dict, dict):
+                raise ValueError("Cookies must be a JSON object")
+            # Clear existing cookies to avoid conflicts
+            self.session.cookies.clear()
+            # Set new cookies
+            for key, value in cookies_dict.items():
+                self.session.cookies.set(key, value, domain="defaulttenant.localhost.mar1.com")
+            self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
+            self.logger.info(f"Manually set cookies: {str(cookies_dict)}")
+            QMessageBox.information(self, "Success", "Cookies set successfully")
+        except (json.JSONDecodeError, ValueError) as e:
+            self.logger.error(f"Failed to set cookies: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to set cookies: Invalid JSON or format ({e})")
+
+    def test_cookie(self):
+        if self.request_in_progress:
+            return
+        cookies = self.session.cookies.get_dict()
+        if not cookies:
+            QMessageBox.critical(self, "No Cookies", "No cookies available to test")
+            self.logger.warning("No cookies available for testing")
+            return
+        self.request_in_progress = True
+        self.send_button.setEnabled(False)
+        self.test_cookie_button.setEnabled(False)
+        self.set_cookies_button.setEnabled(False)
+        self.status_label.setText("Testing cookie...")
+        self.status_label.setStyleSheet("color: blue;")
+        # Update cookies display before testing
+        self.emitter.update_cookies.emit(json.dumps(cookies, indent=2))
+        threading.Thread(target=self.test_cookie_request, daemon=True).start()
+
+    def test_cookie_request(self):
+        # Suppress SSL warnings if verification is disabled
+        if not self.ssl_verify.isChecked():
+            warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+        url = self.test_cookie_url
+        cookies = self.session.cookies.get_dict()
+        if not cookies:
+            self.logger.warning(f"No cookies available for test request to {url}")
+            self.emitter.update_response.emit("Cookie test failed: No cookies available")
+            self.reset_ui()
+            return
+
+        self.logger.info(f"Testing cookie with GET request to {url}, cookies: {str(cookies)}")
+
+        try:
+            response = self.session.get(url, headers={}, verify=self.ssl_verify.isChecked())
+            response.raise_for_status()
+            self.logger.info(f"Cookie test successful: Status {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
+            self.emitter.update_response.emit(f"Cookie Test Status: {response.status_code}\nBody:\n{response.text}")
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Cookie test failed: {e}")
+            self.emitter.update_response.emit(f"Cookie test failed: {e}")
+        finally:
+            self.reset_ui()
 
     def start_request_thread(self):
         if self.request_in_progress:
@@ -298,6 +376,8 @@ class APITesterApp(QMainWindow):
             return
         self.request_in_progress = True
         self.send_button.setEnabled(False)
+        self.test_cookie_button.setEnabled(False)
+        self.set_cookies_button.setEnabled(False)
         self.status_label.setText("Sending request...")
         self.status_label.setStyleSheet("color: blue;")
         # Update cookies display before sending
@@ -351,7 +431,9 @@ class APITesterApp(QMainWindow):
 
         # Log cookies being sent
         cookies = self.session.cookies.get_dict()
-        self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, and cookies {cookies}")
+        if not cookies:
+            self.logger.warning(f"No cookies available for request to {url}")
+        self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, cookies: {str(cookies)}")
 
         # Update or add to history
         current_index = self.history_combo.currentIndex()
@@ -388,8 +470,8 @@ class APITesterApp(QMainWindow):
             response.raise_for_status()
             response_time = (datetime.now() - start_time).total_seconds()
 
-            # Log response headers to check for Set-Cookie
-            self.logger.info(f"Response headers: {response.headers}")
+            # Log response status and headers
+            self.logger.info(f"Response status: {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
 
             # Update UI via signals
             self.emitter.update_response.emit(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
@@ -405,6 +487,8 @@ class APITesterApp(QMainWindow):
     def reset_ui(self):
         self.request_in_progress = False
         self.send_button.setEnabled(True)
+        self.test_cookie_button.setEnabled(True)
+        self.set_cookies_button.setEnabled(True)
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet("color: green;")
 
