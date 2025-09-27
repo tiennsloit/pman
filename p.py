@@ -22,7 +22,7 @@ class APITesterApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("API Tester")
         self.setGeometry(100, 100, 800, 600)
-        self.session = requests.Session()
+        self.session = requests.Session()  # Single session for persistent cookies
         self.request_in_progress = False
         self.request_history = []
 
@@ -68,6 +68,16 @@ class APITesterApp(QMainWindow):
         self.delete_button = QPushButton("Delete Request")
         self.delete_button.clicked.connect(self.delete_request)
         menu_layout.addWidget(self.delete_button)
+
+        # Clear Cookies Button
+        self.clear_cookies_button = QPushButton("Clear Cookies")
+        self.clear_cookies_button.clicked.connect(self.clear_cookies)
+        menu_layout.addWidget(self.clear_cookies_button)
+
+        # Save Cookies Button
+        self.save_cookies_button = QPushButton("Save Cookies")
+        self.save_cookies_button.clicked.connect(self.save_cookies)
+        menu_layout.addWidget(self.save_cookies_button)
 
         menu_layout.addStretch()
 
@@ -197,6 +207,8 @@ class APITesterApp(QMainWindow):
                     self.request_history = json.load(f)
                 self.update_history_combo([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
                 self.logger.info("Loaded request history from history.json")
+                # Update cookies display after loading history
+                self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
             except Exception as e:
                 self.logger.error(f"Failed to load history: {e}")
 
@@ -218,6 +230,8 @@ class APITesterApp(QMainWindow):
         self.body_text.clear()
         self.save_history()
         self.logger.info("Created new request")
+        # Update cookies display to show persistent cookies
+        self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def duplicate_request(self):
         index = self.history_combo.currentIndex()
@@ -236,6 +250,8 @@ class APITesterApp(QMainWindow):
             self.history_combo.setCurrentIndex(len(self.request_history) - 1)
             self.save_history()
             self.logger.info(f"Duplicated request: {new_request['name']}")
+            # Update cookies display
+            self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def delete_request(self):
         index = self.history_combo.currentIndex()
@@ -255,6 +271,19 @@ class APITesterApp(QMainWindow):
                     self.method_combo.setCurrentText("GET")
                     self.headers_text.clear()
                     self.body_text.clear()
+                # Update cookies display
+                self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
+
+    def clear_cookies(self):
+        # Clear session cookies
+        self.session.cookies.clear()
+        self.emitter.update_cookies.emit("")
+        self.logger.info("Cleared session cookies")
+
+    def save_cookies(self):
+        # Placeholder for manual cookie saving (already handled by session)
+        self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
+        self.logger.info("Manually saved cookies (display updated)")
 
     def start_request_thread(self):
         if self.request_in_progress:
@@ -271,6 +300,8 @@ class APITesterApp(QMainWindow):
         self.send_button.setEnabled(False)
         self.status_label.setText("Sending request...")
         self.status_label.setStyleSheet("color: blue;")
+        # Update cookies display before sending
+        self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
         threading.Thread(target=self.send_request, daemon=True).start()
 
     def send_request(self):
@@ -318,8 +349,9 @@ class APITesterApp(QMainWindow):
             self.reset_ui()
             return
 
-        # Log request
-        self.logger.info(f"Sending {method} request to {url} with headers {headers} and body {body}")
+        # Log cookies being sent
+        cookies = self.session.cookies.get_dict()
+        self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, and cookies {cookies}")
 
         # Update or add to history
         current_index = self.history_combo.currentIndex()
@@ -356,6 +388,9 @@ class APITesterApp(QMainWindow):
             response.raise_for_status()
             response_time = (datetime.now() - start_time).total_seconds()
 
+            # Log response headers to check for Set-Cookie
+            self.logger.info(f"Response headers: {response.headers}")
+
             # Update UI via signals
             self.emitter.update_response.emit(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
             cookies = self.session.cookies.get_dict()
@@ -387,6 +422,8 @@ class APITesterApp(QMainWindow):
             self.method_combo.setCurrentText(request["method"])
             self.headers_text.setText(json.dumps(request["headers"], indent=2) if request["headers"] else "")
             self.body_text.setText(json.dumps(request["body"], indent=2) if request["body"] else "")
+            # Update cookies display
+            self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
