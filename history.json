@@ -1,14 +1,12 @@
 [
   {
+    "name": "GET https://defaulttenant.localhost.mar1.com:5001/api/account/health",
     "url": "https://defaulttenant.localhost.mar1.com:5001/api/account/health",
-    "method": "POST",
+    "method": "GET",
     "headers": {
       "Content-Type": "application/json"
     },
-    "body": {
-      "username": "your_username",
-      "password": "your_password"
-    }
+    "body": null
   },
   {
     "name": "POST https://defaulttenant.localhost.mar1.com:5001/api/account/login",

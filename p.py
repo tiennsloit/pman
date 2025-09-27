@@ -5,6 +5,7 @@ import re
 import threading
 import logging
 import requests
+import urllib.parse
 from datetime import datetime
 import warnings
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -140,32 +141,38 @@ class APITesterApp(QMainWindow):
 
         # Proxy Enable Checkbox
         self.proxy_enabled = QCheckBox("Enable Proxy")
-        self.proxy_enabled.setChecked(False)  # Disabled by default
+        self.proxy_enabled.setChecked(False)  # Default disabled
+        self.proxy_enabled.stateChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_enabled, 4, 0, 1, 2)
 
         # Proxy Host
         grid_layout.addWidget(QLabel("Proxy Host:"), 5, 0)
         self.proxy_host_entry = QLineEdit()
+        self.proxy_host_entry.textChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_host_entry, 5, 1)
 
         # Proxy Port
         grid_layout.addWidget(QLabel("Proxy Port:"), 6, 0)
         self.proxy_port_entry = QLineEdit()
+        self.proxy_port_entry.textChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_port_entry, 6, 1)
 
         # Proxy Credentials
         grid_layout.addWidget(QLabel("Proxy Username (optional):"), 7, 0)
         self.proxy_user_entry = QLineEdit()
+        self.proxy_user_entry.textChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_user_entry, 7, 1)
 
         grid_layout.addWidget(QLabel("Proxy Password (optional):"), 8, 0)
         self.proxy_pass_entry = QLineEdit()
         self.proxy_pass_entry.setEchoMode(QLineEdit.Password)
+        self.proxy_pass_entry.textChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_pass_entry, 8, 1)
 
         # SSL Verification Checkbox
         self.ssl_verify = QCheckBox("Verify SSL Certificates")
-        self.ssl_verify.setChecked(True)
+        self.ssl_verify.setChecked(True)  # Default enabled
+        self.ssl_verify.stateChanged.connect(self.save_settings)
         grid_layout.addWidget(self.ssl_verify, 9, 0, 1, 2)
 
         # Send Button and Status
@@ -182,7 +189,7 @@ class APITesterApp(QMainWindow):
         # Response Section
         content_layout.addWidget(QLabel("Response", styleSheet="font-weight: bold;"))
         self.response_text = QTextEdit()
-        self.response_text.setReadOnly(False)  # Allow editing for manual cookie input
+        self.response_text.setReadOnly(False)  # Allow editing for manual input
         self.response_text.setFixedHeight(100)
         content_layout.addWidget(self.response_text)
 
@@ -196,12 +203,52 @@ class APITesterApp(QMainWindow):
         content_layout.addStretch()
 
         # Connect signals after widgets are created
-        self.emitter.update_response.connect(self.response_text.setText)
+        self.emitter.update_response.connect(self.update_response_text)
         self.emitter.update_cookies.connect(self.cookies_text.setText)
         self.emitter.update_history.connect(self.update_history_combo)
 
-        # Load history from file
+        # Load history and settings
         self.load_history_file()
+        self.load_settings()
+
+    def update_response_text(self, text):
+        # Update the response text area and log the action
+        self.logger.info(f"Updating response text area with: {text[:100]}...")
+        self.response_text.clear()  # Clear previous content
+        self.response_text.setText(text)
+
+    def save_settings(self):
+        # Save proxy and SSL settings to settings.json
+        settings = {
+            "proxy_enabled": self.proxy_enabled.isChecked(),
+            "proxy_host": self.proxy_host_entry.text(),
+            "proxy_port": self.proxy_port_entry.text(),
+            "proxy_user": self.proxy_user_entry.text(),
+            "proxy_pass": self.proxy_pass_entry.text(),
+            "ssl_verify": self.ssl_verify.isChecked()
+        }
+        try:
+            with open("settings.json", "w") as f:
+                json.dump(settings, f, indent=2)
+            self.logger.info("Saved settings to settings.json")
+        except Exception as e:
+            self.logger.error(f"Failed to save settings: {e}")
+
+    def load_settings(self):
+        # Load proxy and SSL settings from settings.json
+        if os.path.exists("settings.json"):
+            try:
+                with open("settings.json") as f:
+                    settings = json.load(f)
+                self.proxy_enabled.setChecked(settings.get("proxy_enabled", False))
+                self.proxy_host_entry.setText(settings.get("proxy_host", ""))
+                self.proxy_port_entry.setText(settings.get("proxy_port", ""))
+                self.proxy_user_entry.setText(settings.get("proxy_user", ""))
+                self.proxy_pass_entry.setText(settings.get("proxy_pass", ""))
+                self.ssl_verify.setChecked(settings.get("ssl_verify", True))
+                self.logger.info("Loaded settings from settings.json")
+            except Exception as e:
+                self.logger.error(f"Failed to load settings: {e}")
 
     def save_history(self):
         try:
@@ -355,11 +402,13 @@ class APITesterApp(QMainWindow):
         try:
             response = self.session.get(url, headers={}, verify=self.ssl_verify.isChecked())
             response.raise_for_status()
+            response_text = f"Cookie Test Status: {response.status_code}\nBody:\n{response.text}"
             self.logger.info(f"Cookie test successful: Status {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
-            self.emitter.update_response.emit(f"Cookie Test Status: {response.status_code}\nBody:\n{response.text}")
+            self.emitter.update_response.emit(response_text)
         except requests.exceptions.RequestException as e:
+            response_text = f"Cookie test failed: {e}"
             self.logger.error(f"Cookie test failed: {e}")
-            self.emitter.update_response.emit(f"Cookie test failed: {e}")
+            self.emitter.update_response.emit(response_text)
         finally:
             self.reset_ui()
 
@@ -390,7 +439,7 @@ class APITesterApp(QMainWindow):
             warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
         # Update proxy settings
-        proxies = {}
+        self.session.proxies.clear()  # Clear previous proxy settings
         if self.proxy_enabled.isChecked():
             proxy_host = self.proxy_host_entry.text()
             proxy_port = self.proxy_port_entry.text()
@@ -402,6 +451,7 @@ class APITesterApp(QMainWindow):
                     int(proxy_port)  # Validate port
                 except ValueError:
                     self.emitter.update_response.emit("Error: Proxy port must be a number")
+                    self.logger.error("Proxy port must be a number")
                     self.reset_ui()
                     return
                 proxy_url = f"http://{proxy_host}:{proxy_port}"
@@ -411,7 +461,12 @@ class APITesterApp(QMainWindow):
                     'http': proxy_url,
                     'https': proxy_url
                 }
-        self.session.proxies.update(proxies)
+                self.session.proxies.update(proxies)
+                self.logger.info(f"Using proxy: {proxies}")
+            else:
+                self.logger.warning("Proxy enabled but host or port missing; no proxy used")
+        else:
+            self.logger.info("Proxy disabled; no proxy used")
 
         # Get request details
         url = self.url_entry.text()
@@ -422,10 +477,9 @@ class APITesterApp(QMainWindow):
             body_text = self.body_text.toPlainText().strip()
             body = json.loads(body_text) if body_text and method == "POST" else None
         except json.JSONDecodeError as e:
-            self.emitter.update_response.emit(f"Error: Invalid JSON in headers or body: {e}")
+            response_text = f"Error: Invalid JSON in headers or body: {e}"
+            self.emitter.update_response.emit(response_text)
             self.logger.error(f"JSON decode error: {e}")
-            self.emitter.update_response.emit("")
-            self.emitter.update_cookies.emit("")
             self.reset_ui()
             return
 
@@ -474,12 +528,14 @@ class APITesterApp(QMainWindow):
             self.logger.info(f"Response status: {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
 
             # Update UI via signals
-            self.emitter.update_response.emit(f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}")
+            response_text = f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}"
+            self.emitter.update_response.emit(response_text)
             cookies = self.session.cookies.get_dict()
             self.emitter.update_cookies.emit(json.dumps(cookies, indent=2))
             self.logger.info(f"Request successful: {response.status_code}, Response: {response.text[:100]}...")
         except requests.exceptions.RequestException as e:
-            self.emitter.update_response.emit(f"Request failed: {e}")
+            response_text = f"Request failed: {e}"
+            self.emitter.update_response.emit(response_text)
             self.logger.error(f"Request failed: {e}")
         finally:
             self.reset_ui()
