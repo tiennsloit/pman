@@ -1,1 +1,3 @@
 dist
+pman_tester.egg-info
+*.log
