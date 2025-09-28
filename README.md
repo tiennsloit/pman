@@ -38,3 +38,6 @@ requests>=2.28.0
 4. **Test locally**
     ```markdown
     pip install .
+5. **Install on Windows**
+    ```markdown
+    pip install pman_tester-1.0.0-py3-none-any.whl

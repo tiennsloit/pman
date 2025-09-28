@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="pman-tester",
+    name="pman_tester",
     version="1.0.0",
     packages=find_packages(),
     install_requires=[
@@ -10,7 +10,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "pman-tester=pman_tester.p:main",
+            "pman_tester=pman_tester.p:main",
         ],
     },
     author="Tien Song Nguyen",
