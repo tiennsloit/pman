@@ -41,3 +41,8 @@ requests>=2.28.0
 5. **Install on Windows**
     ```markdown
     pip install pman_tester-1.0.0-py3-none-any.whl
+6. **Add environment for Windows**
+    ```markdown
+    C:\Users\%USERNAME%\AppData\Local\Programs\Python\Python311\Script
+    C:\Users\%USERNAME%\AppData\Roaming\Python\Python313\Scripts\pman_tester.exe
+    
