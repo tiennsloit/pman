@@ -1,0 +1,37 @@
+[
+  {
+    "name": "GET https://defaulttenant.localhost.mar1.com:5001/api/account/health",
+    "url": "https://defaulttenant.localhost.mar1.com:5001/api/account/health",
+    "method": "GET",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": null
+  },
+  {
+    "name": "POST https://defaulttenant.localhost.mar1.com:5001/api/account/login",
+    "url": "https://defaulttenant.localhost.mar1.com:5001/api/account/login",
+    "method": "POST",
+    "headers": {},
+    "body": {
+      "email": "tiennguyensong@gmail.com",
+      "password": "Udtc@1985"
+    }
+  },
+  {
+    "name": "GET https://defaulttenant.localhost.mar1.com:5001/api/account/health",
+    "url": "https://defaulttenant.localhost.mar1.com:5001/api/account/health",
+    "method": "GET",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": null
+  },
+  {
+    "name": "GET https://defaulttenant.localhost.mar1.com:5001/api/account/user",
+    "url": "https://defaulttenant.localhost.mar1.com:5001/api/account/user",
+    "method": "GET",
+    "headers": {},
+    "body": null
+  }
+]

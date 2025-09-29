@@ -45,4 +45,20 @@ requests>=2.28.0
     ```markdown
     C:\Users\%USERNAME%\AppData\Local\Programs\Python\Python311\Script
     C:\Users\%USERNAME%\AppData\Roaming\Python\Python313\Scripts\pman_tester.exe
-    
+7. **Upload to cloud**    
+    ```markdown
+    pip install twine
+8. **Test Cloud** https://test.pypi.org/account/register/
+    ```markdown
+    twine upload --repository testpypi dist/*
+    pip install --index-url https://test.pypi.org/simple/ pman_tester
+    pman-tester
+9. **Product Cloud**
+    ```markdown
+    twine upload dist/*
+10. **Check Path**
+    ```markdown
+    pip show pman_tester
+11. *Install*
+    ```markdown
+    pip install pman_tester

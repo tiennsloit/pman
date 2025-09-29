@@ -1,0 +1,9 @@
+{
+  "proxy_enabled": true,
+  "proxy_host": "localhost",
+  "proxy_port": "8080",
+  "proxy_user": "testuser",
+  "proxy_pass": "testpass",
+  "proxy_exceptions": "*localhost*,*.website1.com*",
+  "ssl_verify": false
+}
