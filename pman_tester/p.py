@@ -24,7 +24,8 @@ class APITesterApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("API Tester")
         self.setGeometry(100, 100, 800, 600)
-        self.session = requests.Session()  # Single session for persistent cookies
+        self.session = requests.Session()
+        self.session.trust_env = False  # Ignore HTTP_PROXY and HTTPS_PROXY environment variables
         self.request_in_progress = False
         self.request_history = []
         self.test_cookie_url = "https://defaulttenant.localhost.mar1.com:5001/api/account/user"  # Default test endpoint
@@ -39,6 +40,7 @@ class APITesterApp(QMainWindow):
             format="%(asctime)s - %(levelname)s - %(message)s"
         )
         self.logger = logging.getLogger()
+        self.logger.info("Initialized requests session with trust_env=False to ignore HTTP_PROXY and HTTPS_PROXY")
 
         # Main widget and layout
         main_widget = QWidget()

@@ -8,6 +8,7 @@ import requests
 import urllib.parse
 from datetime import datetime
 import warnings
+from fnmatch import fnmatch
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QComboBox, QTextEdit, QPushButton, 
                              QCheckBox, QGridLayout, QMessageBox, QSplitter)
@@ -169,11 +170,18 @@ class APITesterApp(QMainWindow):
         self.proxy_pass_entry.textChanged.connect(self.save_settings)
         grid_layout.addWidget(self.proxy_pass_entry, 8, 1)
 
+        # Proxy Exceptions
+        grid_layout.addWidget(QLabel("Proxy Exceptions (comma-separated, e.g., *localhost*,*.website1.com*):"), 9, 0)
+        self.proxy_exceptions_entry = QLineEdit()
+        self.proxy_exceptions_entry.setPlaceholderText("*localhost*,*.website1.com*")
+        self.proxy_exceptions_entry.textChanged.connect(self.save_settings)
+        grid_layout.addWidget(self.proxy_exceptions_entry, 9, 1)
+
         # SSL Verification Checkbox
         self.ssl_verify = QCheckBox("Verify SSL Certificates")
         self.ssl_verify.setChecked(True)  # Default enabled
         self.ssl_verify.stateChanged.connect(self.save_settings)
-        grid_layout.addWidget(self.ssl_verify, 9, 0, 1, 2)
+        grid_layout.addWidget(self.ssl_verify, 10, 0, 1, 2)
 
         # Send Button and Status
         button_layout = QHBoxLayout()
@@ -212,19 +220,18 @@ class APITesterApp(QMainWindow):
         self.load_settings()
 
     def update_response_text(self, text):
-        # Update the response text area and log the action
         self.logger.info(f"Updating response text area with: {text[:100]}...")
-        self.response_text.clear()  # Clear previous content
+        self.response_text.clear()
         self.response_text.setText(text)
 
     def save_settings(self):
-        # Save proxy and SSL settings to settings.json
         settings = {
             "proxy_enabled": self.proxy_enabled.isChecked(),
             "proxy_host": self.proxy_host_entry.text(),
             "proxy_port": self.proxy_port_entry.text(),
             "proxy_user": self.proxy_user_entry.text(),
             "proxy_pass": self.proxy_pass_entry.text(),
+            "proxy_exceptions": self.proxy_exceptions_entry.text(),
             "ssl_verify": self.ssl_verify.isChecked()
         }
         try:
@@ -235,7 +242,6 @@ class APITesterApp(QMainWindow):
             self.logger.error(f"Failed to save settings: {e}")
 
     def load_settings(self):
-        # Load proxy and SSL settings from settings.json
         if os.path.exists("settings.json"):
             try:
                 with open("settings.json") as f:
@@ -245,6 +251,7 @@ class APITesterApp(QMainWindow):
                 self.proxy_port_entry.setText(settings.get("proxy_port", ""))
                 self.proxy_user_entry.setText(settings.get("proxy_user", ""))
                 self.proxy_pass_entry.setText(settings.get("proxy_pass", ""))
+                self.proxy_exceptions_entry.setText(settings.get("proxy_exceptions", "*localhost*,*.website1.com*"))
                 self.ssl_verify.setChecked(settings.get("ssl_verify", True))
                 self.logger.info("Loaded settings from settings.json")
             except Exception as e:
@@ -265,13 +272,11 @@ class APITesterApp(QMainWindow):
                     self.request_history = json.load(f)
                 self.update_history_combo([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
                 self.logger.info("Loaded request history from history.json")
-                # Update cookies display after loading history
                 self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
             except Exception as e:
                 self.logger.error(f"Failed to load history: {e}")
 
     def new_request(self):
-        # Create a new empty request
         new_request = {
             "name": "New Request",
             "url": "",
@@ -288,14 +293,12 @@ class APITesterApp(QMainWindow):
         self.body_text.clear()
         self.save_history()
         self.logger.info("Created new request")
-        # Update cookies display to show persistent cookies
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def duplicate_request(self):
         index = self.history_combo.currentIndex()
         if index >= 0:
             request = self.request_history[index]
-            # Create a copy of the request
             new_request = {
                 "name": f"Copy of {request.get('name', request['method'] + ' ' + request['url'])}",
                 "url": request["url"],
@@ -308,13 +311,11 @@ class APITesterApp(QMainWindow):
             self.history_combo.setCurrentIndex(len(self.request_history) - 1)
             self.save_history()
             self.logger.info(f"Duplicated request: {new_request['name']}")
-            # Update cookies display
             self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def delete_request(self):
         index = self.history_combo.currentIndex()
         if index >= 0:
-            # Confirm deletion
             reply = QMessageBox.question(self, "Delete Request", 
                                        f"Are you sure you want to delete {self.history_combo.currentText()}?",
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -323,28 +324,23 @@ class APITesterApp(QMainWindow):
                 self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
                 self.save_history()
                 self.logger.info(f"Deleted request: {deleted_request.get('name', deleted_request['method'] + ' ' + deleted_request['url'])}")
-                # Clear input fields if no requests remain
                 if not self.request_history:
                     self.url_entry.clear()
                     self.method_combo.setCurrentText("GET")
                     self.headers_text.clear()
                     self.body_text.clear()
-                # Update cookies display
                 self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def clear_cookies(self):
-        # Clear session cookies
         self.session.cookies.clear()
         self.emitter.update_cookies.emit("")
         self.logger.info("Cleared session cookies")
 
     def save_cookies(self):
-        # Update cookie display
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
         self.logger.info("Manually saved cookies (display updated)")
 
     def set_cookies(self):
-        # Parse JSON from cookies text area and set cookies in session
         try:
             cookies_text = self.cookies_text.toPlainText().strip()
             if not cookies_text:
@@ -354,9 +350,7 @@ class APITesterApp(QMainWindow):
             cookies_dict = json.loads(cookies_text)
             if not isinstance(cookies_dict, dict):
                 raise ValueError("Cookies must be a JSON object")
-            # Clear existing cookies to avoid conflicts
             self.session.cookies.clear()
-            # Set new cookies
             for key, value in cookies_dict.items():
                 self.session.cookies.set(key, value, domain="defaulttenant.localhost.mar1.com")
             self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
@@ -380,12 +374,10 @@ class APITesterApp(QMainWindow):
         self.set_cookies_button.setEnabled(False)
         self.status_label.setText("Testing cookie...")
         self.status_label.setStyleSheet("color: blue;")
-        # Update cookies display before testing
         self.emitter.update_cookies.emit(json.dumps(cookies, indent=2))
         threading.Thread(target=self.test_cookie_request, daemon=True).start()
 
     def test_cookie_request(self):
-        # Suppress SSL warnings if verification is disabled
         if not self.ssl_verify.isChecked():
             warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
@@ -397,10 +389,13 @@ class APITesterApp(QMainWindow):
             self.reset_ui()
             return
 
-        self.logger.info(f"Testing cookie with GET request to {url}, cookies: {str(cookies)}")
+        # Check proxy exceptions
+        proxies = self.get_proxies(url)
+
+        self.logger.info(f"Testing cookie with GET request to {url}, cookies: {str(cookies)}, proxies: {proxies}")
 
         try:
-            response = self.session.get(url, headers={}, verify=self.ssl_verify.isChecked())
+            response = self.session.get(url, headers={}, verify=self.ssl_verify.isChecked(), proxies=proxies)
             response.raise_for_status()
             response_text = f"Cookie Test Status: {response.status_code}\nBody:\n{response.text}"
             self.logger.info(f"Cookie test successful: Status {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
@@ -415,7 +410,6 @@ class APITesterApp(QMainWindow):
     def start_request_thread(self):
         if self.request_in_progress:
             return
-        # Validate URL
         url = self.url_entry.text()
         if not url:
             QMessageBox.critical(self, "Invalid Input", "URL cannot be empty")
@@ -429,46 +423,57 @@ class APITesterApp(QMainWindow):
         self.set_cookies_button.setEnabled(False)
         self.status_label.setText("Sending request...")
         self.status_label.setStyleSheet("color: blue;")
-        # Update cookies display before sending
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
         threading.Thread(target=self.send_request, daemon=True).start()
 
+    def get_proxies(self, url):
+        """Determine if proxy should be used based on exceptions."""
+        if not self.proxy_enabled.isChecked():
+            self.logger.info("Proxy disabled; no proxy used")
+            return {}
+        
+        # Parse URL to extract hostname
+        parsed_url = urllib.parse.urlparse(url)
+        hostname = parsed_url.hostname
+
+        # Check proxy exceptions
+        exceptions = self.proxy_exceptions_entry.text().strip()
+        if exceptions:
+            exception_list = [e.strip() for e in exceptions.split(",") if e.strip()]
+            for pattern in exception_list:
+                if fnmatch(hostname, pattern):
+                    self.logger.info(f"URL {url} matches proxy exception {pattern}; bypassing proxy")
+                    return {}
+        
+        # Configure proxy if no exceptions match
+        proxy_host = self.proxy_host_entry.text()
+        proxy_port = self.proxy_port_entry.text()
+        proxy_user = self.proxy_user_entry.text()
+        proxy_pass = self.proxy_pass_entry.text()
+
+        if proxy_host and proxy_port:
+            try:
+                int(proxy_port)  # Validate port
+            except ValueError:
+                self.logger.error("Proxy port must be a number")
+                return {}
+            proxy_url = f"http://{proxy_host}:{proxy_port}"
+            if proxy_user and proxy_pass:
+                proxy_url = f"http://{urllib.parse.quote(proxy_user)}:{urllib.parse.quote(proxy_pass)}@{proxy_host}:{proxy_port}"
+            proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            self.logger.info(f"Using proxy: {proxies}")
+            return proxies
+        else:
+            self.logger.warning("Proxy enabled but host or port missing; no proxy used")
+            return {}
+
     def send_request(self):
-        # Suppress SSL warnings if verification is disabled
         if not self.ssl_verify.isChecked():
             warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-        # Update proxy settings
-        self.session.proxies.clear()  # Clear previous proxy settings
-        if self.proxy_enabled.isChecked():
-            proxy_host = self.proxy_host_entry.text()
-            proxy_port = self.proxy_port_entry.text()
-            proxy_user = self.proxy_user_entry.text()
-            proxy_pass = self.proxy_pass_entry.text()
-
-            if proxy_host and proxy_port:
-                try:
-                    int(proxy_port)  # Validate port
-                except ValueError:
-                    self.emitter.update_response.emit("Error: Proxy port must be a number")
-                    self.logger.error("Proxy port must be a number")
-                    self.reset_ui()
-                    return
-                proxy_url = f"http://{proxy_host}:{proxy_port}"
-                if proxy_user and proxy_pass:
-                    proxy_url = f"http://{urllib.parse.quote(proxy_user)}:{urllib.parse.quote(proxy_pass)}@{proxy_host}:{proxy_port}"
-                proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
-                self.session.proxies.update(proxies)
-                self.logger.info(f"Using proxy: {proxies}")
-            else:
-                self.logger.warning("Proxy enabled but host or port missing; no proxy used")
-        else:
-            self.logger.info("Proxy disabled; no proxy used")
-
-        # Get request details
         url = self.url_entry.text()
         method = self.method_combo.currentText()
         try:
@@ -483,16 +488,16 @@ class APITesterApp(QMainWindow):
             self.reset_ui()
             return
 
-        # Log cookies being sent
+        # Get proxies based on URL and exceptions
+        proxies = self.get_proxies(url)
+
         cookies = self.session.cookies.get_dict()
         if not cookies:
             self.logger.warning(f"No cookies available for request to {url}")
-        self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, cookies: {str(cookies)}")
+        self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, cookies: {str(cookies)}, proxies: {proxies}")
 
-        # Update or add to history
         current_index = self.history_combo.currentIndex()
         if current_index >= 0:
-            # Update existing request
             self.request_history[current_index] = {
                 "name": f"{method} {url}",
                 "url": url,
@@ -501,7 +506,6 @@ class APITesterApp(QMainWindow):
                 "body": body
             }
         else:
-            # Add new request
             request_entry = {
                 "name": f"{method} {url}",
                 "url": url,
@@ -514,20 +518,16 @@ class APITesterApp(QMainWindow):
         self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
         self.save_history()
 
-        # Send request
         try:
             start_time = datetime.now()
             if method == "POST":
-                response = self.session.post(url, headers=headers, json=body, verify=self.ssl_verify.isChecked())
+                response = self.session.post(url, headers=headers, json=body, verify=self.ssl_verify.isChecked(), proxies=proxies)
             else:
-                response = self.session.get(url, headers=headers, verify=self.ssl_verify.isChecked())
+                response = self.session.get(url, headers=headers, verify=self.ssl_verify.isChecked(), proxies=proxies)
             response.raise_for_status()
             response_time = (datetime.now() - start_time).total_seconds()
 
-            # Log response status and headers
             self.logger.info(f"Response status: {response.status_code}, headers: {json.dumps(dict(response.headers), indent=2)}")
-
-            # Update UI via signals
             response_text = f"Status: {response.status_code}\nResponse Time: {response_time:.2f} seconds\nBody:\n{response.text}"
             self.emitter.update_response.emit(response_text)
             cookies = self.session.cookies.get_dict()
@@ -562,7 +562,6 @@ class APITesterApp(QMainWindow):
             self.method_combo.setCurrentText(request["method"])
             self.headers_text.setText(json.dumps(request["headers"], indent=2) if request["headers"] else "")
             self.body_text.setText(json.dumps(request["body"], indent=2) if request["body"] else "")
-            # Update cookies display
             self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
 def main():
