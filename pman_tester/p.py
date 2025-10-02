@@ -36,7 +36,7 @@ class APITesterApp(QMainWindow):
         # Setup logging
         logging.basicConfig(
             filename=f"api_tester_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-            level=logging.INFO,
+            level=logging.DEBUG,  # Set to DEBUG for cookie troubleshooting
             format="%(asctime)s - %(levelname)s - %(message)s"
         )
         self.logger = logging.getLogger()
@@ -123,7 +123,7 @@ class APITesterApp(QMainWindow):
         # Method
         grid_layout.addWidget(QLabel("Method:"), 1, 0)
         self.method_combo = QComboBox()
-        self.method_combo.addItems(["GET", "POST"])
+        self.method_combo.addItems(["GET", "POST", "PUT", "DELETE", "PATCH"])
         self.method_combo.setCurrentText("GET")  # Default to GET
         grid_layout.addWidget(self.method_combo, 1, 1, alignment=Qt.AlignLeft)
 
@@ -222,7 +222,7 @@ class APITesterApp(QMainWindow):
         self.load_settings()
 
     def update_response_text(self, text):
-        self.logger.info(f"Updating response text area with: {text[:100]}...")
+        self.logger.debug(f"Updating response text area with: {text[:100]}...")
         self.response_text.clear()
         self.response_text.setText(text)
 
@@ -239,7 +239,7 @@ class APITesterApp(QMainWindow):
         try:
             with open("settings.json", "w") as f:
                 json.dump(settings, f, indent=2)
-            self.logger.info("Saved settings to settings.json")
+            self.logger.debug("Saved settings to settings.json")
         except Exception as e:
             self.logger.error(f"Failed to save settings: {e}")
 
@@ -255,7 +255,7 @@ class APITesterApp(QMainWindow):
                 self.proxy_pass_entry.setText(settings.get("proxy_pass", ""))
                 self.proxy_exceptions_entry.setText(settings.get("proxy_exceptions", "*localhost*,*.website1.com*"))
                 self.ssl_verify.setChecked(settings.get("ssl_verify", True))
-                self.logger.info("Loaded settings from settings.json")
+                self.logger.debug("Loaded settings from settings.json")
             except Exception as e:
                 self.logger.error(f"Failed to load settings: {e}")
 
@@ -263,7 +263,7 @@ class APITesterApp(QMainWindow):
         try:
             with open("history.json", "w") as f:
                 json.dump(self.request_history, f, indent=2)
-            self.logger.info("Saved request history to history.json")
+            self.logger.debug("Saved request history to history.json")
         except Exception as e:
             self.logger.error(f"Failed to save history: {e}")
 
@@ -273,7 +273,7 @@ class APITesterApp(QMainWindow):
                 with open("history.json") as f:
                     self.request_history = json.load(f)
                 self.update_history_combo([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
-                self.logger.info("Loaded request history from history.json")
+                self.logger.debug("Loaded request history from history.json")
                 self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
             except Exception as e:
                 self.logger.error(f"Failed to load history: {e}")
@@ -294,7 +294,7 @@ class APITesterApp(QMainWindow):
         self.headers_text.clear()
         self.body_text.clear()
         self.save_history()
-        self.logger.info("Created new request")
+        self.logger.debug("Created new request")
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def duplicate_request(self):
@@ -312,7 +312,7 @@ class APITesterApp(QMainWindow):
             self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
             self.history_combo.setCurrentIndex(len(self.request_history) - 1)
             self.save_history()
-            self.logger.info(f"Duplicated request: {new_request['name']}")
+            self.logger.debug(f"Duplicated request: {new_request['name']}")
             self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
 
     def delete_request(self):
@@ -325,7 +325,7 @@ class APITesterApp(QMainWindow):
                 deleted_request = self.request_history.pop(index)
                 self.emitter.update_history.emit([r.get("name", f"{r['method']} {r['url']}") for r in self.request_history])
                 self.save_history()
-                self.logger.info(f"Deleted request: {deleted_request.get('name', deleted_request['method'] + ' ' + deleted_request['url'])}")
+                self.logger.debug(f"Deleted request: {deleted_request.get('name', deleted_request['method'] + ' ' + deleted_request['url'])}")
                 if not self.request_history:
                     self.url_entry.clear()
                     self.method_combo.setCurrentText("GET")
@@ -336,11 +336,11 @@ class APITesterApp(QMainWindow):
     def clear_cookies(self):
         self.session.cookies.clear()
         self.emitter.update_cookies.emit("")
-        self.logger.info("Cleared session cookies")
+        self.logger.debug("Cleared session cookies")
 
     def save_cookies(self):
         self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
-        self.logger.info("Manually saved cookies (display updated)")
+        self.logger.debug("Manually saved cookies (display updated)")
 
     def set_cookies(self):
         try:
@@ -352,11 +352,24 @@ class APITesterApp(QMainWindow):
             cookies_dict = json.loads(cookies_text)
             if not isinstance(cookies_dict, dict):
                 raise ValueError("Cookies must be a JSON object")
+            
+            url = self.url_entry.text() or self.test_cookie_url
+            parsed_url = urllib.parse.urlparse(url)
+            domain = parsed_url.hostname if parsed_url.hostname else "defaulttenant.localhost.mar1.com"
+            path = parsed_url.path or "/"
+            
             self.session.cookies.clear()
             for key, value in cookies_dict.items():
-                self.session.cookies.set(key, value, domain="defaulttenant.localhost.mar1.com")
+                self.session.cookies.set(
+                    name=key,
+                    value=value,
+                    domain=domain,
+                    path=path,
+                    secure=True,  # Ensure cookies are marked Secure for HTTPS
+                    samesite='None'  # Set SameSite=None for cross-origin compatibility
+                )
             self.emitter.update_cookies.emit(json.dumps(self.session.cookies.get_dict(), indent=2))
-            self.logger.info(f"Manually set cookies: {str(cookies_dict)}")
+            self.logger.debug(f"Set cookies: {str(cookies_dict)} for domain={domain}, path={path}, secure=True, samesite=None")
             QMessageBox.information(self, "Success", "Cookies set successfully")
         except (json.JSONDecodeError, ValueError) as e:
             self.logger.error(f"Failed to set cookies: {e}")
@@ -393,6 +406,11 @@ class APITesterApp(QMainWindow):
 
         # Check proxy exceptions
         proxies = self.get_proxies(url)
+
+        # Log cookies being sent
+        cookie_jar = self.session.cookies
+        cookie_details = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path, "secure": c.secure, "samesite": c.get_nonstandard_attr('samesite')} for c in cookie_jar]
+        self.logger.debug(f"Sending cookies to {url}: {json.dumps(cookie_details, indent=2)}")
 
         self.logger.info(f"Testing cookie with GET request to {url}, cookies: {str(cookies)}, proxies: {proxies}")
 
@@ -482,7 +500,7 @@ class APITesterApp(QMainWindow):
             headers_text = self.headers_text.toPlainText().strip()
             headers = json.loads(headers_text) if headers_text else {}
             body_text = self.body_text.toPlainText().strip()
-            body = json.loads(body_text) if body_text and method == "POST" else None
+            body = json.loads(body_text) if body_text and method in ["POST", "PUT", "PATCH"] else None
         except json.JSONDecodeError as e:
             response_text = f"Error: Invalid JSON in headers or body: {e}"
             self.emitter.update_response.emit(response_text)
@@ -493,9 +511,15 @@ class APITesterApp(QMainWindow):
         # Get proxies based on URL and exceptions
         proxies = self.get_proxies(url)
 
+        # Log cookies being sent
         cookies = self.session.cookies.get_dict()
-        if not cookies:
+        if cookies:
+            cookie_jar = self.session.cookies
+            cookie_details = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path, "secure": c.secure, "samesite": c.get_nonstandard_attr('samesite')} for c in cookie_jar]
+            self.logger.debug(f"Sending cookies to {url}: {json.dumps(cookie_details, indent=2)}")
+        else:
             self.logger.warning(f"No cookies available for request to {url}")
+
         self.logger.info(f"Sending {method} request to {url} with headers {headers}, body {body}, cookies: {str(cookies)}, proxies: {proxies}")
 
         current_index = self.history_combo.currentIndex()
@@ -524,6 +548,12 @@ class APITesterApp(QMainWindow):
             start_time = datetime.now()
             if method == "POST":
                 response = self.session.post(url, headers=headers, json=body, verify=self.ssl_verify.isChecked(), proxies=proxies)
+            elif method == "PUT":
+                response = self.session.put(url, headers=headers, json=body, verify=self.ssl_verify.isChecked(), proxies=proxies)
+            elif method == "DELETE":
+                response = self.session.delete(url, headers=headers, json=body, verify=self.ssl_verify.isChecked(), proxies=proxies)
+            elif method == "PATCH":
+                response = self.session.patch(url, headers=headers, json=body, verify=self.ssl_verify.isChecked(), proxies=proxies)
             else:
                 response = self.session.get(url, headers=headers, verify=self.ssl_verify.isChecked(), proxies=proxies)
             response.raise_for_status()
