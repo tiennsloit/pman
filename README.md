@@ -38,7 +38,7 @@ requests>=2.28.0
 4. **Test locally**
     ```markdown
     pip install .
-5. **Install on Windows**
+5. **Install on Windows for testing**
     ```markdown
     pip install pman_tester-1.0.0-py3-none-any.whl
 6. **Add environment for Windows**
@@ -59,6 +59,12 @@ requests>=2.28.0
 10. **Check Path**
     ```markdown
     pip show pman_tester
-11. *Install*
+11. **Install**
     ```markdown
+    pip install pman_tester
+12. **Upgrade wont work =))**
+I am sure your current setting will not be lost
+13. **Uninstall and reinstall**
+    ```markdown
+    pip uninstall pman_tester
     pip install pman_tester
